@@ -1,0 +1,167 @@
+FROM dustynv/cuda-python:r35.4.1
+
+ARG SSH_PRIVATE_KEY="" \
+    && SSH_KNOWN_HOSTS=""
+
+#setup user
+ENV USER="sim" \
+    PASSWORD="pass" \
+    UID="1000" \
+    HOME="/home/sim" \
+    DEBIAN_FRONTEND="noninteractive" \
+    TZ=Etc/UTC \ 
+    OPENBLAS_NUM_THREADS=1 \
+    PATH=${PATH}:/home/sim/.local/bin \
+    LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH}
+
+RUN mkdir -p ${HOME} \
+    && addgroup --gid ${UID} ${USER} \
+    && useraddd -p ${PASSWORD} --uid ${UID} --gid ${UID} -d ${HOME} --shell /bin/bash ${USER} \
+    && useradd ${USER} sudo \
+    && echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers \
+    && chown -R ${USER}:${USER} ${HOME}
+
+# removing python2    
+RUN rm -f /usr/bin/python \
+    && ln -s /usr/bin/python /usr/bin/python
+
+# copying ssh info into correct files to clone with USER, if cloning as root - copy to /root/.ssh
+RUN if [ "${SSH_PRIVATE_KEY}" != "" ] && [ "${SSH_KNOWN_HOSTS}" != "" ]; then \
+        mkdir -p ${HOME}/.ssh/ \ 
+        && chmod -R 700 ${HOME}/.ssh/ \
+        && echo "${SSH_KNOWN_HOSTS}" > ${HOME}/.ssh/known_hosts \
+        && chmod 400 ${HOME}/.ssh/known_hosts  \
+        && echo "${SSH_PRIVATE_KEY}" > ${HOME}/.ssh/id_rsa \
+        && chmod 400 ${HOME}/.ssh/id_rsa  \
+        && echo "StrictHostKeyChecking no" >> /etc/ssh/config \
+        && ssh-keyscan gitlab.com >> ${HOME}/.ssh/known_hosts \ 
+        && ssh-keyscan github.com >> ${HOME}/.ssh/known_hosts \
+    fi
+
+# install debians 
+RUN sudo apt update && sudo apt install -y \
+    cmake \
+    doxygen \
+    g++ \
+    git1.2-pango-1.0 \
+    gir1.2-gtk-3.0 \
+    gobject0introspection \
+    libad9361-dev \
+    libboost-all-dev \
+    libfftw3-dev \
+    libgmp-dev \
+    libgsl-dev \
+    libqwt-qt5-dev \
+    libsdl1.2-dev \
+    libqt5opengl5-dev  \
+    liblog4cpp5-dev \
+    libcodec2-dev \
+    libcppunit-dev \
+    libgsm1-dev \
+    libsndfile-dev \
+    libsoapysdr-dev \
+    libiio-dev \
+    libspdlog-dev \
+    libgirepository1.0-dev \
+    libusb-1.0-0 \
+    libusb-1.0-0-dev \
+    libudev-dev \
+    libzmq3-dev \
+    pybind11-dev \
+    python3-numpy \
+    python3-mako \
+    python3-sphinx \
+    python3-lxml \
+    python3-pyqt5 \
+    python3-yaml \
+    python3-click \
+    python3-click-plugins \
+    python3-zmq \
+    python3-scipy \
+    python3-gi \
+    python3-gi-cairo \
+    python3-setuptools \
+    python3-matplotlib \
+    python3-pygccxml \
+    python3-packaging \
+    python3-jsonschema \
+    python3-qtpy \
+    soapysdr-tools \
+    swig \
+    usbutils \
+    vim 
+
+USER ${USER}
+
+#install Python packages
+RUN python3 -m pip install \
+    pyqtgraph \
+    pybind11 \
+    pycuda
+
+WORKDIR ${HOME}
+
+#cloning Repos:
+#   UHD - version 4.5
+#   VOLK - version 3.2.0
+#   GNURadio - version 3.10
+RUN git clone -b UHD-4.5 https://github.com/EttusResearch/uhd.git \
+    && git clone --recursive -b v3.2.0 https://github.com/gnuradio/volk.git \
+    && git clone -b maint-3.10 https://github.com/gnuradio/gnuradio.git 
+
+USER root 
+
+# building UHD
+WORKDIR ${HOME}/uhd/host/build
+
+RUN cmake -DCMAKE_INSTALL_PREFIX=/usr/local .. \
+    && make -j3 \
+    && make test \ 
+    && sudo make install \
+    && sudo ldconfig
+
+# building volk
+WORKDIR ${HOME}/volk/build
+
+RUN cmake -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=$(which python3) .. \
+    && make \
+    && make test \
+    && sudo make install \
+    && sudo ldconfig
+
+# building GNURadio
+WORKDIR ${HOME}/gnuradio/build
+
+RUN cmake \
+    -DENABLE_PYTHON=ON \
+    -DENABLE_DEFAULT=ON \
+    -DENABLE_GRC=ON \
+    -DPYTHON_EXECUTABLE=$(which python3) \
+    .. \
+    && make -j8 \
+    && sudo make install \
+    && sudo ldconfig \
+    && volk_profile
+
+# configure kernel 
+RUN echo "net.core.rmem_max=1000000000" >> /etc/sysctl.conf \
+    && echo "net.core.wmem_max=1000000000" >> /etc/sysctl.conf \
+    && echo "kernel.sched_rt_runtime_us=-1" >> /etc/sysctl.conf 
+
+# write GNURadio config
+RUN mkdir -p ${HOME}/.config/gnuradio/prefs \
+    && touch ${HOME}/.config/gnuradio/prefs/vmcircbuf_default_factory \
+    && echo "gr::vmcircbuf_map_shm_open_factory" >> ${HOME}/.config/gnuradio/prefs/vmcircbuf_default_factory 
+
+#copy entrypoints 
+COPY ./scripts/gnuradio_entrypoint.sh /usr/local/bin/gnuradio_entrypoint.sh
+
+RUN chmod +x /usr/local/bin/gnuradio_entrypoint.sh
+
+WORKDIR ${HOME}
+
+USER ${USER}
+
+ENTRYPOINT [ "gnuradio_entrypoint.sh" ]
+
+CMD [ "gnuradio-companion" ]
