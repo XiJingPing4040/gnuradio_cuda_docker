@@ -16,8 +16,8 @@ ENV USER="sim" \
 
 RUN mkdir -p ${HOME} \
     && addgroup --gid ${UID} ${USER} \
-    && useraddd -p ${PASSWORD} --uid ${UID} --gid ${UID} -d ${HOME} --shell /bin/bash ${USER} \
-    && useradd ${USER} sudo \
+    && useradd -p ${PASSWORD} --uid ${UID} --gid ${UID} -d ${HOME} --shell /bin/bash ${USER} \
+    && adduser ${USER} sudo \
     && echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers \
     && chown -R ${USER}:${USER} ${HOME}
 
@@ -35,7 +35,7 @@ RUN if [ "${SSH_PRIVATE_KEY}" != "" ] && [ "${SSH_KNOWN_HOSTS}" != "" ]; then \
         && chmod 400 ${HOME}/.ssh/id_rsa  \
         && echo "StrictHostKeyChecking no" >> /etc/ssh/config \
         && ssh-keyscan gitlab.com >> ${HOME}/.ssh/known_hosts \ 
-        && ssh-keyscan github.com >> ${HOME}/.ssh/known_hosts \
+        && ssh-keyscan github.com >> ${HOME}/.ssh/known_hosts; \
     fi
 
 # install debians 
@@ -43,9 +43,9 @@ RUN sudo apt update && sudo apt install -y \
     cmake \
     doxygen \
     g++ \
-    git1.2-pango-1.0 \
+    gir1.2-pango-1.0 \
     gir1.2-gtk-3.0 \
-    gobject0introspection \
+    gobject-introspection \
     libad9361-dev \
     libboost-all-dev \
     libfftw3-dev \
