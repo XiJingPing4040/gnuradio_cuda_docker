@@ -1,0 +1,38 @@
+version: "3.3"
+services:
+  gnuradio:
+    container_name: gnuradio
+    image: xijingping4040/gnuradio-cuda:r35.6.4
+    privileged: true
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /usr/share/X11:/usr/share/X11
+      - /dev:/dev
+      - /run/udev/:/run/udev/:ro
+    environment:
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    runtime:nvidia
+    deploy:
+      resources:
+        reservation:
+          devices:
+            - driver: nvidia
+              count: 1
+              cpapbilities: ["gpu"]
+    cap_add:
+      - SYS_NICE
+      - SYS_RESOURCE
+    ulimits:
+      rtprio: 99
+    devices:
+      - /dev/nvmap
+    group_add:
+      - video
+    network_mode: host
+    ipc: host
+    shm_size: 1024m
+    pid: host
+    stding_open: true
+    tty: true
